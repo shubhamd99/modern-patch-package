@@ -62,10 +62,6 @@ jobs:
         if: matrix.package-manager == 'pnpm'
         run: pnpm test
 
-      # Show what will be published to npm (sanity check for dist/ and files field)
-      - name: Show npm publish contents
-        run: npm pack --dry-run
-
   publish:
     needs: test
     runs-on: ubuntu-latest
@@ -88,6 +84,9 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Show npm publish contents
+        run: npm pack --dry-run
 
       - name: Publish to npm
         run: npm publish
