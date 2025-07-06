@@ -1,0 +1,39 @@
+# Source files
+src/
+examples/
+
+# Development files
+.github/
+.eslintrc.js
+.prettierrc
+.yarnrc.yml
+jest.config.js
+tsconfig.json
+
+# Development dependencies
+node_modules/
+
+# Git files
+.git/
+.gitignore
+
+# Documentation (keep README and LICENSE)
+CHANGELOG.md
+
+# Test files
+__tests__/
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Build tools
+rimraf
+typescript
+ts-jest
+jest
+eslint
+prettier
+
+# TypeScript source maps (keep JS source maps)
+*.tsbuildinfo 

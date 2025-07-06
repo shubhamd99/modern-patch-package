@@ -5,6 +5,11 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": "dist/cli.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -38,7 +43,7 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
-    "chalk": "^5.3.0",
+    "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "fs-extra": "^11.1.1",
     "glob": "^10.3.10"
