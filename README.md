@@ -1,3 +1,5 @@
+![modern-patch-package logo](assets/logo.png)
+
 # modern-patch-package
 
 [![npm version](https://badge.fury.io/js/modern-patch-package.svg)](https://badge.fury.io/js/modern-patch-package)
