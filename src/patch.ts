@@ -349,21 +349,104 @@ export class ModernPatchPackage {
         originalDir = packageSubdir;
       }
 
-      // Create git diff between original and current
-      const { success, output, error } = await executeCommand(
-        `git diff --no-index "${originalDir}" "${packagePath}"`,
-        process.cwd()
+      // Debug: print the directories and file lists
+      const getAllFiles = async (
+        dir: string,
+        prefix = ''
+      ): Promise<string[]> => {
+        let results: string[] = [];
+        const list = await fs.readdir(dir);
+        for (const file of list) {
+          const filePath = path.join(dir, file);
+          const relPath = path.join(prefix, file);
+          const stat = await fs.stat(filePath);
+          if (stat && stat.isDirectory()) {
+            results = results.concat(await getAllFiles(filePath, relPath));
+          } else {
+            results.push(relPath);
+          }
+        }
+        return results;
+      };
+      const originalFiles = await getAllFiles(originalDir);
+      const modifiedFiles = await getAllFiles(packagePath);
+      console.log(
+        chalk.cyan('--- Original (extracted) directory:'),
+        originalDir
       );
+      console.log(chalk.cyan('Files:'), originalFiles);
+      console.log(
+        chalk.magenta('--- Modified (node_modules) directory:'),
+        packagePath
+      );
+      console.log(chalk.magenta('Files:'), modifiedFiles);
 
-      // Clean up temp directory
-      await fs.remove(tempDir);
+      // Create a more robust diff by comparing individual files
+      let hasDifferences = false;
+      const patchContent: string[] = [];
+      patchContent.push(
+        `diff --git a/${packageInfo.name} b/${packageInfo.name}`
+      );
+      patchContent.push(`index 0000000..0000000 100644`);
+      patchContent.push(`--- a/${packageInfo.name}`);
+      patchContent.push(`+++ b/${packageInfo.name}`);
 
-      if (success && output.trim()) {
-        await fs.writeFile(patchFilePath, output);
+      // Find common files to compare
+      const commonFiles = originalFiles.filter(file =>
+        modifiedFiles.includes(file)
+      );
+      console.log(chalk.blue('Common files to compare:'), commonFiles);
+
+      for (const file of commonFiles) {
+        const originalFilePath = path.join(originalDir, file);
+        const modifiedFilePath = path.join(packagePath, file);
+
+        try {
+          const originalContent = await fs.readFile(originalFilePath, 'utf8');
+          const modifiedContent = await fs.readFile(modifiedFilePath, 'utf8');
+
+          if (originalContent !== modifiedContent) {
+            hasDifferences = true;
+            console.log(chalk.green(`Found differences in: ${file}`));
+
+            // Create a simple diff for this file
+            const originalLines = originalContent.split('\n');
+            const modifiedLines = modifiedContent.split('\n');
+
+            patchContent.push(
+              `@@ -1,${originalLines.length} +1,${modifiedLines.length} @@`
+            );
+
+            // Simple line-by-line comparison (this is a basic implementation)
+            const maxLines = Math.max(
+              originalLines.length,
+              modifiedLines.length
+            );
+            for (let i = 0; i < maxLines; i++) {
+              const originalLine = originalLines[i] || '';
+              const modifiedLine = modifiedLines[i] || '';
+
+              if (originalLine !== modifiedLine) {
+                if (originalLine) patchContent.push(`-${originalLine}`);
+                if (modifiedLine) patchContent.push(`+${modifiedLine}`);
+              } else {
+                patchContent.push(` ${originalLine}`);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(chalk.yellow(`Could not compare file ${file}: ${err}`));
+        }
+      }
+
+      // Do NOT clean up temp directory so user can inspect it
+      // await fs.remove(tempDir);
+
+      if (hasDifferences) {
+        const finalPatchContent = patchContent.join('\n');
+        await fs.writeFile(patchFilePath, finalPatchContent);
         console.log(
-          chalk.green(
-            '✓ Created patch by comparing with original package from registry'
-          )
+          chalk.green('✓ Created patch by comparing individual files')
         );
         return true;
       } else {
@@ -396,6 +479,19 @@ export class ModernPatchPackage {
           'Manual patches need to be applied manually. Check the patch file for instructions.'
         )
       );
+      return;
+    }
+
+    // Check if this is a custom patch (created by our file comparison)
+    const isCustomPatch =
+      patchContent.includes('diff --git a/') &&
+      patchContent.includes('index 0000000..0000000');
+
+    if (isCustomPatch) {
+      console.log(
+        chalk.blue(`Applying custom patch: ${path.basename(patchFile)}`)
+      );
+      await this.applyCustomPatch(patchContent);
       return;
     }
 
@@ -432,6 +528,62 @@ export class ModernPatchPackage {
             'Check for .rej files and apply changes manually if needed.'
           )
         );
+      }
+    }
+  }
+
+  private async applyCustomPatch(patchContent: string): Promise<void> {
+    const lines = patchContent.split('\n');
+    let currentFile = '';
+    let inHunk = false;
+    let lineNumber = 0;
+    let fileContent: string[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith('diff --git a/')) {
+        // Extract package name from diff header
+        const match = line.match(/diff --git a\/([^\/]+)/);
+        if (match) {
+          currentFile = match[1];
+          console.log(chalk.blue(`Processing file: ${currentFile}`));
+        }
+      } else if (line.startsWith('@@')) {
+        inHunk = true;
+        lineNumber = 0;
+        fileContent = [];
+      } else if (inHunk && line.startsWith(' ')) {
+        // Unchanged line
+        fileContent.push(line.substring(1));
+        lineNumber++;
+      } else if (inHunk && line.startsWith('+')) {
+        // Added line
+        fileContent.push(line.substring(1));
+        lineNumber++;
+      } else if (inHunk && line.startsWith('-')) {
+        // Removed line - skip it
+        lineNumber++;
+      } else if (inHunk && !line.startsWith('@@')) {
+        // End of hunk or other content
+        inHunk = false;
+
+        // Apply the changes to the file
+        if (currentFile && fileContent.length > 0) {
+          const packagePath = await getPackagePath(currentFile);
+          if (packagePath) {
+            // Find the main file to modify (usually index.js or the main entry point)
+            const packageJsonPath = path.join(packagePath, 'package.json');
+            if (await fs.pathExists(packageJsonPath)) {
+              const packageJson = await fs.readJson(packageJsonPath);
+              const mainFile = packageJson.main || 'index.js';
+              const mainFilePath = path.join(packagePath, mainFile);
+
+              if (await fs.pathExists(mainFilePath)) {
+                await fs.writeFile(mainFilePath, fileContent.join('\n'));
+                console.log(chalk.green(`✓ Applied changes to ${mainFile}`));
+              }
+            }
+          }
+        }
       }
     }
   }
