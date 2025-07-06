@@ -332,7 +332,7 @@ export class ModernPatchPackage {
       await fs.ensureDir(extractPath);
 
       const { success: extractSuccess } = await executeCommand(
-        `tar -xzf "${tarballPath}" -C "${extractPath}" --strip-components=1`,
+        `tar -xzf "${tarballPath}" -C "${extractPath}"`,
         process.cwd()
       );
 
@@ -342,9 +342,16 @@ export class ModernPatchPackage {
         return false;
       }
 
+      // Check if the extracted directory contains a 'package' subdirectory
+      let originalDir = extractPath;
+      const packageSubdir = path.join(extractPath, 'package');
+      if (await fs.pathExists(packageSubdir)) {
+        originalDir = packageSubdir;
+      }
+
       // Create git diff between original and current
       const { success, output, error } = await executeCommand(
-        `git diff --no-index "${extractPath}" "${packagePath}"`,
+        `git diff --no-index "${originalDir}" "${packagePath}"`,
         process.cwd()
       );
 
